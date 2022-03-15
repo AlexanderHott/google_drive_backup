@@ -8,4 +8,6 @@ Give the app a name, a user support email, and a Developer contact email. Click 
 
 Go back to the dashboard, click Create Credentails, click OAuth client ID, click Desktop App, enter a name, then click create.
 
-Rename the `.env.example` file to `.env` and update the two values with the newly created credentials (no quotes).
+Download the json file and rename it to `credentials.json`.
+
+After running `main.py` for the first time, you will get an error saying that the Google Drive API is not enabled. Click the link and enable the API. You may need to wait a few minutes for the API to be enabled.
