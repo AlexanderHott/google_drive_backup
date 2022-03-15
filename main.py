@@ -1,6 +1,17 @@
+import glob
 import os
 import os.path
+import threading
 import typing as t
+
+import rich
+from rich.progress import (
+    BarColumn,
+    Progress,
+    TaskID,
+    TextColumn,
+    TimeRemainingColumn,
+)
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -8,7 +19,6 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
-
 
 SCOPES: t.Final[str] = ["https://www.googleapis.com/auth/drive"]
 """Permissions to access Google Drive"""
@@ -22,8 +32,30 @@ CREDENTIALS_FILE: t.Final[str] = "credentials.json"
 REMOTE_BACKUP_FOLDER_NAME: t.Final[str] = "BackupFolder"
 """Name of the folder to store backups in"""
 
-LOCAL_BACKUP_PATHS: t.Final[list[str]] = ["./backup_test"]
+LOCAL_BACKUP_PATHS: t.Final[list[str]] = ["backup_test"]
 """Paths to backup"""
+
+
+def get_recursive_file_count(path: str) -> int:
+    """Get the number of files recursivly in a directory"""
+    count = 0
+    for root, dirs, files in os.walk(path):
+        count += len(files)
+        for dir in dirs:
+            count += get_recursive_file_count(dir)
+    return count
+
+
+def upload_file(task_id: TaskID, file: str, folder_id: str) -> None:
+    if os.path.isdir(file):
+        return
+    progress.console.log(f"Uploading {file}")
+
+    file_metdata = {"name": file, "parents": [folder_id]}
+    media = MediaFileUpload(file)
+    service.files().create(body=file_metdata, media_body=media, fields="id").execute()
+    progress.advance(task_id)
+    progress.console.log(f"Completed uploading {file}")
 
 
 creds = None
@@ -56,7 +88,6 @@ try:
         )
         .execute()
     )
-    print(f"{response=}")
     # Create remote backup folder if it does not exist
     if not response["files"]:
         file_metdata = {
@@ -65,27 +96,30 @@ try:
         }
 
         file = service.files().create(body=file_metdata, fields="id").execute()
-        print(file)
         folder_id = file["id"]
     else:
         folder_id = response["files"][0]["id"]
-    print(folder_id)
     # Iterate over all the paths and all the files in the paths
     # and upload them to Google Drive
 
-    # for path in LOCAL_BACKUP_PATHS:
-    # for file in os.listdir(path):
-    for file in os.listdir(LOCAL_BACKUP_PATHS):
-        file_metdata = {"name": file, "parents": [folder_id]}
+    total_files = sum([get_recursive_file_count(path) for path in LOCAL_BACKUP_PATHS])
+    count = 0
+    progress = Progress(
+        TextColumn("[bold blue]hello world", justify="right"),
+        BarColumn(bar_width=None),
+        "[progress.percentage]{task.percentage:>3.1f}%",
+        "•",
+        TimeRemainingColumn(),
+    )
 
-        media = MediaFileUpload(f"{LOCAL_BACKUP_PATHS}/{file}")
-        upload_file = (
-            service.files()
-            .create(body=file_metdata, media_body=media, fields="id")
-            .execute()
-        )
+    with progress:
+        upload_task_id = progress.add_task("Upload")
+        progress.update(upload_task_id, total=total_files)
 
-        # print(f"Backed up {file}")
+        for path in LOCAL_BACKUP_PATHS:
+            for file in glob.glob(f"{path}/**", recursive=True):
+                upload_file(upload_task_id, file, folder_id)
+
 
 except HttpError as e:
     print(f"Error: {e}")
